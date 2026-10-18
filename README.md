@@ -6,6 +6,8 @@ Lightweight Windows desk-lamp overlay for night reading, with adjustable light a
 
 适用于 Windows 10/11 x64。原生 Win32、.NET 10 Native AOT，便携单文件，无依赖。
 
+[下载最新版 Windows x64 便携包](https://github.com/SunSi12138/spotlighter/releases/latest/download/Spotlighter-win-x64.zip) · [查看所有版本](https://github.com/SunSi12138/spotlighter/releases)
+
 ## 使用
 
 解压便携包，运行 `Spotlighter.exe`。程序启动后在主显示器顶部显示小台灯，并在系统托盘显示台灯图标。

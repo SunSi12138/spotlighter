@@ -1,0 +1,63 @@
+name: Spotlighter release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spotlighter-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish Windows x64 release
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build, self-test and package
+        shell: pwsh
+        run: ./scripts/Build-Release.ps1
+
+      - name: Create GitHub release and upload portable package
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'artifacts/Spotlighter-win-x64.zip';
+            const tag = context.ref.replace('refs/tags/', '');
+            const release = await github.rest.repos.createRelease({
+              ...context.repo,
+              tag_name: tag,
+              name: `Spotlighter ${tag}`,
+              body: [
+                `Spotlighter ${tag} is the first stable release of the portable Windows desktop lamp.`,
+                '',
+                'Download `Spotlighter-win-x64.zip`, extract it, and run `Spotlighter.exe`. No .NET runtime installation is needed.',
+                '',
+                'The executable is not Authenticode-signed, so Windows may show an unknown publisher warning. Start menu, notification center, and the UAC secure desktop are outside the overlay scope.'
+              ].join('\n'),
+              draft: false,
+              prerelease: false
+            });
+            const result = await github.rest.repos.uploadReleaseAsset({
+              ...context.repo,
+              release_id: release.data.id,
+              name: 'Spotlighter-win-x64.zip',
+              data: fs.readFileSync(path),
+              headers: {
+                'content-type': 'application/zip',
+                'content-length': fs.statSync(path).size
+              }
+            });
+            core.info(`Release: ${release.data.html_url}`);
+            core.info(`Download: ${result.data.browser_download_url}`);

@@ -11,6 +11,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>Spotlighter</AssemblyName>
     <RootNamespace>Spotlighter</RootNamespace>
+    <Version>1.0.0</Version>
     <ApplicationIcon>Assets/Spotlighter.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
