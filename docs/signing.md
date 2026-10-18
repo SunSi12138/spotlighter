@@ -18,6 +18,8 @@ Get-ChildItem Cert:/CurrentUser/My -CodeSigningCert | Select-Object Subject, Thu
 
 脚本使用 Windows SDK SignTool：SHA-256 文件摘要、RFC 3161 时间戳，再以 Authenticode 策略验证所有签名和时间戳，输出最终 SHA-256。机器证书存储可加 `-MachineStore`，也支持显式 `-FilePath`、`-SignToolPath`。脚本不导出私钥，不接收或打印密码。
 
+普通版默认使用 `artifacts/publish/Spotlighter.exe`。UIAccess 版需先生成带特殊清单的独立构建，再由 `scripts/Build-UIAccess.ps1 -CertificateThumbprint '40位指纹'` 对独立 EXE 签名和打包；不要把普通版 EXE 签名后当作 UIAccess 版。
+
 3. 分发刚签名的同一个 EXE；签名后不要再次构建或改写文件。签名后运行 `./scripts/Package-Release.ps1` 打包，脚本会校验保留签名后的 EXE 原始字节。
 4. 正式签名可以显示可信发布者，但 SmartScreen 还检查信誉；新程序即使签名有效也可能出现提示。自签名不能自动在其他电脑受信任。Microsoft Store 分发由商店处理签名和信誉要求。详见[微软签名选项](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)、[SmartScreen 信誉](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)和 [SignTool](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)。
 
