@@ -96,6 +96,21 @@ internal static unsafe class SelfTest
         }
         LampLayout wide1440=new(0,0,3440,1440),normal1440=new(0,0,2560,1440);
         if(wide1440.Width!=normal1440.Width||wide1440.Height!=normal1440.Height)return 46;
+        // Ambient position is cubic; persisted values remain actual brightness.
+        if(SettingsWindow.FromSlider(3,0)!=0||SettingsWindow.FromSlider(3,1)!=.3f)return 47;
+        if(MathF.Abs(SettingsWindow.FromSlider(3,.1f)-.0003f)>.000001f||MathF.Abs(SettingsWindow.FromSlider(3,.5f)-.0375f)>.000001f)return 48;
+        float previousAmbient=0;
+        for(int i=0;i<=1000;i++)
+        {
+            float position=i/1000f,value=SettingsWindow.FromSlider(3,position);
+            if(value<previousAmbient||MathF.Abs(SettingsWindow.ToSlider(3,value)-position)>.000001f)return 49;
+            previousAmbient=value;
+        }
+        foreach(float saved in new[]{0f,.00001f,.001f,.01f,.15f,.3f})
+            if(MathF.Abs(SettingsWindow.FromSlider(3,SettingsWindow.ToSlider(3,saved))-saved)>.000001f)return 50;
+        if(SettingsWindow.AdjustedValue(3,0,-1)!=0||SettingsWindow.AdjustedValue(3,.3f,1)!=.3f)return 51;
+        float fineStep=SettingsWindow.AdjustedValue(3,.01f,1);
+        if(fineStep<=.01f||fineStep-.01f>=.001f||MathF.Abs(SettingsWindow.AdjustedValue(3,fineStep,-1)-.01f)>.000001f)return 52;
         nint icon=LampIcon.Create();LampIcon.DestroyIcon(icon);
         return painted>100?0:15;
     }

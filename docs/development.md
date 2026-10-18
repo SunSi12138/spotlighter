@@ -15,6 +15,7 @@
 - DirectComposition 初始化或运行失败时，自动回退到单个较大的 Win32 保留位图。兼容路径的内存和设置变更成本更高，最多支持 1600 万像素的虚拟桌面；4K 缓存像素约 127 MiB。
 - 已取消曾经的四块外围窗口拼接，避免窗口几何更新不同步产生的接缝。外围颜色明确来自黑色像素，不再使用主题相关的 `SS_BLACKRECT`。[微软对静态控件颜色的说明](https://learn.microsoft.com/en-us/windows/win32/controls/static-control-styles)。
 - 设置面板只在操作时重绘小窗口，使用 Windows 自带 GDI+，没有引入浏览器、WinUI 或大型 UI 框架。
+- 环境亮度只在面板交互时映射：`ambient = 0.3 × position³`，绘制滑块用立方根逆映射。方向键和滚轮每步移动 1% 行程；数值显示四位小数。持久化仍保存实际亮度，默认 0.01 和 0～0.3 的范围不变，因此旧设置不会被二次映射。此曲线不增加渲染阶段的逐像素计算。
 
 在当前“保留桌面原内容，只调暗和滤色”的需求下，不需要 WGC 或 Desktop Duplication。此前的桌面采集与纸面着色已移除；采集会增加延迟、纹理资源及自捕获排除问题。也没有加入 DXR 或光追。
 
@@ -22,13 +23,13 @@
 
 Native AOT 原本就隐含 Trim；Release 现明确设置 `PublishTrimmed=true`、`TrimMode=full`、`OptimizationPreference=Size`，并保持不变区域性模式。发布版关闭运行时堆栈、调试器/事件/指标等支持，精简系统异常文案，不生成或拷贝调试符号。SDK 对 Native AOT 的这些功能已有静态裁剪支持，详见[微软体积优化说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/optimizing)。
 
-2026-10-18 灯具缩放版本的本地文件大小（后续版本可能变化）：
+2026-10-18 环境亮度曲线版本的本地文件大小（后续版本可能变化）：
 
 | 文件 | 大小 |
 | --- | --- |
 | 优化前 EXE | 1,864,704 字节（1.78 MiB） |
-| 优化后 EXE | 1,488,384 字节（1.42 MiB，减少约 20.2%） |
-| ZIP 便携包 | 746,415 字节（729 KiB） |
+| 优化后 EXE | 1,489,408 字节（1.42 MiB，减少约 20.1%） |
+| ZIP 便携包 | 747,241 字节（730 KiB） |
 
 ZIP 只含 `Spotlighter.exe`，不含 PDB、SDK、源码或额外运行时。此前约 9.5 MiB 的 PDB 是调试符号，不是必需运行文件；旧本地符号备份在被 Git 忽略的 `artifacts/symbols/`。打包使用 ZIP 的 SmallestSize 压缩，并验证包内 EXE 的 SHA-256 与输入完全相同。CI 也生成此便携包；这里只比较文件体积，没有追加运行帧率测试。
 
@@ -59,7 +60,7 @@ dotnet publish ./Spotlighter/Spotlighter.csproj -c Release -r win-x64 --self-con
 Start-Process ./artifacts/publish/Spotlighter.exe -ArgumentList '--self-test' -Wait -PassThru
 ```
 
-`--self-test` 不打开桌面覆盖层，检查衰减、默认值、参数边界、冷暖滤光的预乘 alpha、原色附近的非线性连续性、柔边与环境反射冷暖方向、单击/双击判定、台灯发光冷暖和台灯图标；另检查 720p/1080p/1440p/2160p/4320p 的灯具缩放、4K 像素保持一致、带鱼屏宽度无关、负坐标布局以及缩放后实体和透明区的 alpha。当前 Native AOT 发布和自检通过。
+`--self-test` 不打开桌面覆盖层，检查衰减、默认值、参数边界、冷暖滤光的预乘 alpha、原色附近的非线性连续性、柔边与环境反射冷暖方向、单击/双击判定、台灯发光冷暖和台灯图标；另检查环境亮度三次方曲线的端点、单调性、正反映射及微调步进，以及 720p/1080p/1440p/2160p/4320p 的灯具缩放、4K 像素保持一致、带鱼屏宽度无关、负坐标布局以及缩放后实体和透明区的 alpha。当前 Native AOT 发布和自检通过。
 
 其他可选入口：
 

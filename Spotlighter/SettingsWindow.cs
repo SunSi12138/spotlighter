@@ -9,7 +9,8 @@ internal static unsafe class SettingsWindow
     private static readonly Native.WndProc Callback=Proc;
     private static readonly string[] Names={"光源范围","照明亮度","边缘柔和度","环境亮度","光色冷暖"};
     private static readonly float[] Min={.35f,.2f,0,0,-1},Max={2.5f,1.8f,2.5f,.3f,1};
-    private static readonly float[] Step={.02f,.02f,.025f,.001f,.02f};
+    // Ambient steps are fractions of slider travel; other steps are physical values.
+    private static readonly float[] Step={.02f,.02f,.025f,.01f,.02f};
     private static OverlayBitmap? _image;
     private static bool _registered,_dirty,_paintPending,_preview;
     private static int _left,_top,_selected,_drag=-1;
@@ -70,11 +71,25 @@ internal static unsafe class SettingsWindow
         LightSettings s=LightSettings.Current;
         return i switch{0=>s.Size,1=>s.Brightness,2=>s.Softness,3=>s.Ambient,_=>s.Temperature};
     }
-    private static string Value(int i)=>i switch{0=>$"{Get(i):0.00}×",1=>$"{Get(i)*100:0}%",2=>$"{Get(i):0.00}",3=>$"{Get(i):0.000}",_=>MathF.Abs(Get(i))<.005f?"0.00":$"{Get(i):+0.00;-0.00}"};
+    internal static float ToSlider(int i,float value)
+    {
+        float position=Math.Clamp((value-Min[i])/(Max[i]-Min[i]),0,1);
+        return i==3?MathF.Cbrt(position):position;
+    }
+    internal static float FromSlider(int i,float position)
+    {
+        position=Math.Clamp(position,0,1);
+        if(i==3)position=position*position*position;
+        return Min[i]+position*(Max[i]-Min[i]);
+    }
+    internal static float AdjustedValue(int i,float value,float steps)=>i==3
+        ?FromSlider(i,ToSlider(i,value)+steps*Step[i])
+        :Math.Clamp(value+steps*Step[i],Min[i],Max[i]);
+    private static string Value(int i)=>i switch{0=>$"{Get(i):0.00}×",1=>$"{Get(i)*100:0}%",2=>$"{Get(i):0.00}",3=>$"{Get(i):0.0000}",_=>MathF.Abs(Get(i))<.005f?"0.00":$"{Get(i):+0.00;-0.00}"};
     private static void Set(int i,float value)
     {
         value=Math.Clamp(value,Min[i],Max[i]);
-        if(MathF.Abs(Get(i)-value)<.00001f)return;
+        if(i==3?Get(i)==value:MathF.Abs(Get(i)-value)<.00001f)return;
         LightSettings s=LightSettings.Current;
         switch(i){case 0:s.Size=value;break;case 1:s.Brightness=value;break;case 2:s.Softness=value;break;case 3:s.Ambient=value;break;case 4:s.Temperature=value;break;}
         s.Clamp();_dirty=true;Changed?.Invoke();Native.SetTimer(Handle,2,350,0);RequestPaint();
@@ -97,7 +112,7 @@ internal static unsafe class SettingsWindow
                 c.Text(Names[i],24,y,190,14,0xffdedbd4);
                 c.Text(Value(i),254,y,88,14,0xffe8bf83);
                 c.Round(28,track,304,5,2.5f,0x55b0b4bc);
-                float normalized=(Get(i)-Min[i])/(Max[i]-Min[i]),x=28+normalized*304;
+                float normalized=ToSlider(i,Get(i)),x=28+normalized*304;
                 if(i==4)
                 {
                     c.Round(179,track-3,2,11,1,0x80ffffff);
@@ -123,7 +138,7 @@ internal static unsafe class SettingsWindow
     private static void Drag(float x)
     {
         if(_drag<0)return;
-        float value=Min[_drag]+Math.Clamp((x-28)/304,0,1)*(Max[_drag]-Min[_drag]);
+        float value=FromSlider(_drag,(x-28)/304);
         Set(_drag,value);
     }
     private static void Save(){if(_dirty){LightSettings.Save();_dirty=false;}if(Handle!=0)Native.KillTimer(Handle,2);}
@@ -149,14 +164,14 @@ internal static unsafe class SettingsWindow
             }
             if(msg==0x200&&_drag>=0){Drag(x);return 0;}
             if(msg==0x202||msg==0x215){if(_drag>=0){_drag=-1;ReleaseCapture();Save();RequestPaint();}return 0;}
-            if(msg==0x20a){Set(_selected,Get(_selected)+(short)((wp>>16)&0xffff)/120f*Step[_selected]);return 0;}
+            if(msg==0x20a){Set(_selected,AdjustedValue(_selected,Get(_selected),(short)((wp>>16)&0xffff)/120f));return 0;}
             if(msg==0x100)
             {
                 int key=(int)wp;
                 if(key==27){Close();return 0;}
                 if(key==9){_selected=(_selected+(GetKeyState(16)<0?4:1))%5;RequestPaint();return 0;}
                 if(key==38||key==40){_selected=(_selected+(key==38?4:1))%5;RequestPaint();return 0;}
-                if(key==37||key==39){Set(_selected,Get(_selected)+(key==37?-1:1)*Step[_selected]);return 0;}
+                if(key==37||key==39){Set(_selected,AdjustedValue(_selected,Get(_selected),key==37?-1:1));return 0;}
                 if(key==36||key==35){Set(_selected,key==36?Min[_selected]:Max[_selected]);return 0;}
                 if(key==13){Close();return 0;}
             }
