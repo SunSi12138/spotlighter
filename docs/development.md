@@ -1,0 +1,89 @@
+# 开发与验证
+
+[返回项目首页](../README.md) · [源码模块索引](../Spotlighter/README.md)
+
+命令均在仓库根目录执行。
+
+## 当前渲染方案
+
+`CompositionOverlay.cs` 在 CPU 上生成低分辨率的预乘 alpha 遮罩，只在设置或显示配置变化时重新计算。通过 WARP 软件设备上传并保留位图，鼠标移动时仅修改一个 DirectComposition visual 的位置并提交事务；没有每帧桌面捕获、全屏 CPU 像素改写或自定义 GPU 着色器。Windows 的 DWM 仍负责桌面合成，这不意味着整台电脑完全不使用 GPU。
+
+- 缓存位图覆盖两倍虚拟桌面的宽和高，以四分之一的空间分辨率存储，再由系统插值放大。实际 4K 桌面对应 1920×1080 缓存。
+- 小台灯缓存 48 个方向。灯泡和光晕使用与桌面相同的非对称冷暖曲线，灯罩保持原有黄铜颜色；改变冷暖后按需更新当前方向，后续方向懒加载，避免每次拖动滑条重绘全部 48 帧。熄灯时保留无光晕的灯具。
+- 方向缓存保持 240×190 设计尺寸，仅在方向或冷暖变化时对当前帧做预乘 alpha 插值，输出到随屏幕高度变化的小位图；4K 直接复制原像素，不增加静止时更新或随分辨率增长的 48 帧缓存。
+- 鼠标停止后停止提交图层更新；启用期间以 60 Hz 检查位置，关闭时降到 4 Hz。
+- DirectComposition 初始化或运行失败时，自动回退到单个较大的 Win32 保留位图。兼容路径的内存和设置变更成本更高，最多支持 1600 万像素的虚拟桌面；4K 缓存像素约 127 MiB。
+- 已取消曾经的四块外围窗口拼接，避免窗口几何更新不同步产生的接缝。外围颜色明确来自黑色像素，不再使用主题相关的 `SS_BLACKRECT`。[微软对静态控件颜色的说明](https://learn.microsoft.com/en-us/windows/win32/controls/static-control-styles)。
+- 设置面板只在操作时重绘小窗口，使用 Windows 自带 GDI+，没有引入浏览器、WinUI 或大型 UI 框架。
+
+在当前“保留桌面原内容，只调暗和滤色”的需求下，不需要 WGC 或 Desktop Duplication。此前的桌面采集与纸面着色已移除；采集会增加延迟、纹理资源及自捕获排除问题。也没有加入 DXR 或光追。
+
+## 发布体积与便携打包
+
+Native AOT 原本就隐含 Trim；Release 现明确设置 `PublishTrimmed=true`、`TrimMode=full`、`OptimizationPreference=Size`，并保持不变区域性模式。发布版关闭运行时堆栈、调试器/事件/指标等支持，精简系统异常文案，不生成或拷贝调试符号。SDK 对 Native AOT 的这些功能已有静态裁剪支持，详见[微软体积优化说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/optimizing)。
+
+2026-10-18 灯具缩放版本的本地文件大小（后续版本可能变化）：
+
+| 文件 | 大小 |
+| --- | --- |
+| 优化前 EXE | 1,864,704 字节（1.78 MiB） |
+| 优化后 EXE | 1,488,384 字节（1.42 MiB，减少约 20.2%） |
+| ZIP 便携包 | 746,415 字节（729 KiB） |
+
+ZIP 只含 `Spotlighter.exe`，不含 PDB、SDK、源码或额外运行时。此前约 9.5 MiB 的 PDB 是调试符号，不是必需运行文件；旧本地符号备份在被 Git 忽略的 `artifacts/symbols/`。打包使用 ZIP 的 SmallestSize 压缩，并验证包内 EXE 的 SHA-256 与输入完全相同。CI 也生成此便携包；这里只比较文件体积，没有追加运行帧率测试。
+
+```powershell
+./scripts/Package-Release.ps1
+```
+
+输出为 `artifacts/Spotlighter-win-x64.zip`，脚本需要 PowerShell 7.2+；使用者解压运行 EXE 不需要 PowerShell。
+
+体积优化的代价是发布版异常信息更简短，不含运行时堆栈。需要诊断时可另行发布完整符号版本：
+
+```powershell
+dotnet publish ./Spotlighter/Spotlighter.csproj -c Release -o ./artifacts/diagnostic -p:StackTraceSupport=true -p:UseSystemResourceKeys=false -p:DebuggerSupport=true -p:DebugType=portable -p:DebugSymbols=true -p:CopyOutputSymbolsToPublishDirectory=true
+```
+
+## 构建与检查
+
+需要 Windows、.NET SDK 10、MSVC Build Tools 和 Windows SDK。推荐使用与 CI 相同的一键流程（PowerShell 7.2+）：
+
+```powershell
+./scripts/Build-Release.ps1
+```
+
+它发布 EXE，执行有 60 秒超时保护的自检，然后打包并校验 ZIP；不会执行性能测试或启用桌面覆盖层。也可分别执行：
+
+```powershell
+dotnet publish ./Spotlighter/Spotlighter.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -o ./artifacts/publish
+Start-Process ./artifacts/publish/Spotlighter.exe -ArgumentList '--self-test' -Wait -PassThru
+```
+
+`--self-test` 不打开桌面覆盖层，检查衰减、默认值、参数边界、冷暖滤光的预乘 alpha、原色附近的非线性连续性、柔边与环境反射冷暖方向、单击/双击判定、台灯发光冷暖和台灯图标；另检查 720p/1080p/1440p/2160p/4320p 的灯具缩放、4K 像素保持一致、带鱼屏宽度无关、负坐标布局以及缩放后实体和透明区的 alpha。当前 Native AOT 发布和自检通过。
+
+其他可选入口：
+
+```powershell
+# 启用灯光并显示调光面板
+./artifacts/publish/Spotlighter.exe --settings
+# 只启用灯光
+./artifacts/publish/Spotlighter.exe --active
+# 不显示窗口，输出同一绘制代码生成的面板 PNG
+./artifacts/publish/Spotlighter.exe --ui-preview ./artifacts/settings-preview.png
+# 重新生成源码中的多尺寸台灯图标
+./artifacts/publish/Spotlighter.exe --export-icon ./Spotlighter/Assets/Spotlighter.ico
+# 仅手动需要时运行；会显示覆盖层，运行前退出托盘实例
+./artifacts/publish/Spotlighter.exe --integration-test ./artifacts/integration.txt
+./artifacts/publish/Spotlighter.exe --profile cpu ./artifacts/profile.txt 3840 2160
+```
+
+集成入口读取本程序自身的缓存位图，检查透明度和位图移动时的稳定性；不会读取其他应用像素。它不能证明物理显示无闪烁或输入延迟。无交互的 PNG 预览已检查，但完整桌面上的灯具双击、面板拖动、跨应用点击、输入、滚动和拖动仍须手工复核。旧版输入曾经手工确认正常；这不替代当前版本的复核。
+
+## 限制与待验证
+
+- 保留通用便携模式，不处理开始菜单、通知中心等更高层级系统浮层，也不支持 UAC 安全桌面。
+- 内容不被截图和重绘，系统光标仍由 Windows 绘制。台灯自身可见实体是刻意保留的点击区域，其余覆盖层保持穿透。
+- HDR 色彩准确性、跨适配器多屏、负坐标、混合 DPI、显示热插拔、睡眠恢复和远程驱动差异未完成对应物理环境验证。显示变化时重建遮罩并关闭可能越界的面板。
+- 浮动面板按打开位置的显示器 DPI 缩放并限制在工作区内；跨 DPI 拖动后可关闭并重新打开重新适配。
+- 多屏时只在主显示器放置一盏灯，避免落入虚拟桌面的显示器间隙；分辨率缩放、带鱼屏宽度无关和负坐标布局通过合成数据自检，尚未实际切换物理显示模式或验证混合 DPI。
+- 旧分块暗幕的灰边与接缝来源已移除；新版本是否在本机完全消除动态闪条仍需实际观察，不能仅凭缓存像素检查宣称通过。

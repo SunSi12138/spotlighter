@@ -1,0 +1,43 @@
+name: Spotlighter - Windows Native AOT
+
+on:
+  push:
+    branches:
+      - main
+      - spotlighter
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spotlighter-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-native-aot:
+    name: Build native Windows executable
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build, self-test and package (win-x64)
+        shell: pwsh
+        run: ./scripts/Build-Release.ps1
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spotlighter-win-x64-native-aot
+          path: ./artifacts/Spotlighter-win-x64.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30

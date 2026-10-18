@@ -1,0 +1,22 @@
+**/bin/
+**/obj/
+.vs/
+*.user
+*.pdb
+*.ilk
+
+/artifacts/
+/shader-diagnostics.txt
+
+# Signing keys must never be committed.
+*.pfx
+*.p12
+*.key
+*.pem
+
+# Machine-specific IDE settings and local credentials.
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
