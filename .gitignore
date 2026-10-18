@@ -1,22 +1,51 @@
+# .NET and IDE build output
 **/bin/
 **/obj/
 .vs/
-*.user
-*.pdb
-*.ilk
-
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
 /artifacts/
-/shader-diagnostics.txt
 
-# Signing keys must never be committed.
+# NuGet and test output
+*.nupkg
+*.snupkg
+[Tt]est[Rr]esult*/
+TestResult.xml
+nunit-*.xml
+*.VisualState.xml
+CodeCoverage/
+[Bb]uild[Ll]og.*
+*.binlog
+project.lock.json
+project.fragment.lock.json
+
+# Editor and temporary files
+.vscode/
+.idea/
+*.user
+~$*
+*~
+
+# Signing keys and machine-specific credentials
 *.pfx
 *.p12
 *.key
 *.pem
-
-# Machine-specific IDE settings and local credentials.
-.idea/
-.vscode/
 .env
 .env.*
 !.env.example
+
+# Local diagnostics
+*.pdb
+*.ilk
+/shader-diagnostics.txt
