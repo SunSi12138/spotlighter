@@ -36,7 +36,7 @@ internal static unsafe class SelfTest
         }
         // At zero, the mask is exactly neutral at center, penumbra and outside.
         s.Ambient=0;s.Temperature=0;s.Brightness=1;s.Softness=0;
-        if(LightMask.Pixel(0,0,100,s)!=0 || LightMask.Pixel(66,0,100,s)!=0x80000000 || LightMask.Pixel(10000,0,100,s)!=0xff000000)return 19;
+        if(LightMask.Pixel(0,0,100,s)!=0 || Math.Abs((int)(LightMask.Pixel(66,0,100,s)>>24)-128)>1 || LightMask.Pixel(10000,0,100,s)!=0xff000000)return 19;
         s.Ambient=.15f;s.Temperature=1;uint warm=LightMask.Pixel(10000,0,100,s);
         s.Temperature=-1;uint cool=LightMask.Pixel(10000,0,100,s);
         int wr=White(warm,16),wb=White(warm,0),cr=White(cool,16),cb=White(cool,0);
@@ -111,10 +111,68 @@ internal static unsafe class SelfTest
         if(SettingsWindow.AdjustedValue(3,0,-1)!=0||SettingsWindow.AdjustedValue(3,.3f,1)!=.3f)return 51;
         float fineStep=SettingsWindow.AdjustedValue(3,.01f,1);
         if(fineStep<=.01f||fineStep-.01f>=.001f||MathF.Abs(SettingsWindow.AdjustedValue(3,fineStep,-1)-.01f)>.000001f)return 52;
+        // Quantize the full-strength tint once; float opacity then varies
+        // continuously. Dark blue-gray content must not flip red/blue as the
+        // warm slider increases, including around the former 0.4 regression.
+        LightSettings tintSettings=new(){Ambient=.0075f};
+        uint neutralMask=LightMask.NeutralPixel(0,0,100,tintSettings);
+        foreach(float sign in new[]{-1f,1f})
+        {
+            float previousDifference=-8;bool crossedToWarm=false;
+            uint fullTint=LightMask.FullTintPixel(neutralMask,tintSettings.Ambient,sign<0);
+            for(int i=0;i<=1000;i++)
+            {
+                float temperature=sign*i/1000f,amount=LightMask.TintAmount(temperature);
+                float red=Composite(neutralMask,fullTint,amount,27,0),blue=Composite(neutralMask,fullTint,amount,35,2),difference=red-blue;
+                if(sign*(difference-previousDifference)<-.00001f)return 53;
+                previousDifference=difference;
+                if(sign>0)
+                {
+                    if(MathF.Round(red)>MathF.Round(blue))crossedToWarm=true;
+                    if(crossedToWarm&&MathF.Round(red)<MathF.Round(blue))return 54;
+                }
+            }
+            if(sign>0&&!crossedToWarm)return 55;
+        }
+        foreach(float ambient in new[]{0f,.0075f,.3f})foreach(int x in new[]{0,66,180,10000})
+        {
+            tintSettings.Ambient=ambient;uint encoded=LightMask.NeutralPixel(x,0,100,tintSettings);
+            if((encoded&0xffffff)!=0)return 56;
+            foreach(bool useCool in new[]{false,true})
+            {
+                uint fullTint=LightMask.FullTintPixel(encoded,ambient,useCool);uint a=fullTint>>24;
+                if((fullTint&255)>a||((fullTint>>8)&255)>a||((fullTint>>16)&255)>a)return 57;
+                if(Composite(encoded,fullTint,0,255,0)!=255*(1-(encoded>>24)/255f))return 58;
+            }
+        }
+        // Ambient is spatially uniform. Weak fixed grayscale dithering is
+        // restricted to the lit transition and never randomizes tint RGB.
+        tintSettings.Ambient=.0137f;double sum=0;int low=255,high=0;
+        for(int y=0;y<64;y++)for(int x=0;x<64;x++)
+        {
+            float noise=LightMask.Noise(x,y);if(noise<0||noise>=1||noise!=LightMask.Noise(x,y))return 59;
+            int a=(int)(LightMask.NeutralPixel(10000+x,10000+y,100,tintSettings)>>24);
+            sum+=a;low=Math.Min(low,a);high=Math.Max(high,a);
+            if(LightMask.MaskNoise(tintSettings.Ambient,tintSettings.Ambient,x,y)!=.5f)return 60;
+            float dither=LightMask.MaskNoise(.5f,tintSettings.Ambient,x,y);if(dither<.25f||dither>=.75f)return 61;
+        }
+        if(high!=low||high!=(int)MathF.Floor(255*(1-tintSettings.Ambient)+.5f))return 62;
+        foreach(float temperature in new[]{-1f,0f,1f})
+        {
+            tintSettings.Temperature=temperature;uint expected=LightMask.Pixel(10000,10000,100,tintSettings);
+            for(int i=0;i<256;i++)if(LightMask.Pixel(10000+i,10000,100,tintSettings)!=expected)return 63;
+        }
+
         nint icon=LampIcon.Create();LampIcon.DestroyIcon(icon);
         return painted>100?0:15;
     }
     private static int White(uint p,int shift)=>255-(int)(p>>24)+(int)((p>>shift)&255);
+    private static float Composite(uint neutral,uint fullTint,float amount,float background,int channel)
+    {
+        float dark=(neutral>>24)/255f,alpha=(fullTint>>24)/255f;
+        float color=(fullTint>>(16-channel*8))&255;
+        return (1-dark)*(background*(1-alpha*amount)+color*amount);
+    }
     internal static int Benchmark(string path) {
         LightSettings.Reset(); long started=Stopwatch.GetTimestamp();uint checksum=0;
         for(int y=0;y<1080;y++)for(int x=0;x<1920;x++)checksum^=LightMask.Pixel(x-960,y-540,410,LightSettings.Current);

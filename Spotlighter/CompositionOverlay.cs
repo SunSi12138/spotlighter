@@ -23,15 +23,24 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
 
     private nint _window, _device, _context, _factory, _dxgiDevice;
     private nint _swapChain, _dcomp, _target, _visual;
+    private nint _opacityEffect,_tintVisual,_darkVisual;
+    private nint _tintSwapChain,_tintBackBuffer;
+    private uint[]? _tintPixels;
     internal int RenderWidth { get; private set; }
     internal int RenderHeight { get; private set; }
     private nint _backBuffer;
+    internal bool CaptureSubmittedFrames;
+    private uint[]? _submittedPixels;
+    internal int MaskUploadCount { get; private set; }
+    internal int TintUpdateCount { get; private set; }
     private bool _visible, _disposed;
     private readonly int _outputWidth,_outputHeight;
     private bool _cacheValid;
     private uint[]? _cachedPixels;
     private LightSettings? _cachedSettings;
-    private float _cachedSize,_cachedBrightness,_cachedSoftness,_cachedAmbient,_cachedTemperature;
+    private float _cachedSize,_cachedBrightness,_cachedSoftness,_cachedAmbient;
+    private float _cachedTemperature=float.NaN;
+    private int _cachedTintSign;
 
     public int Left { get; }
     public int Top { get; }
@@ -155,6 +164,9 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
                 Method(_factory, 24))(_factory, _device, &desc, 0, &chain),
                 "CreateSwapChainForComposition");
             _swapChain = chain;
+            nint tintChain=0;
+            Check(((delegate* unmanaged[Stdcall]<nint,nint,DxgiSwapChainDesc1*,nint,nint*,int>)Method(_factory,24))(_factory,_device,&desc,0,&tintChain),"Create tint swap chain");
+            _tintSwapChain=tintChain;
 
             Guid compGuid = DcompIid;
             Check(DCompositionCreateDevice(_dxgiDevice, ref compGuid, out _dcomp),
@@ -168,10 +180,17 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
             Check(((delegate* unmanaged[Stdcall]<nint, nint*, int>)
                 Method(_dcomp, 7))(_dcomp, &visual), "IDCompositionDevice.CreateVisual");
             _visual = visual;
+            nint opacity=0;
+            Check(((delegate* unmanaged[Stdcall]<nint,nint*,int>)Method(_dcomp,23))(_dcomp,&opacity),"CreateEffectGroup");
+            _opacityEffect=opacity;
+            _tintVisual=CreateVisual();_darkVisual=CreateVisual();
+            Check(((delegate* unmanaged[Stdcall]<nint,nint,int>)Method(_tintVisual,10))(_tintVisual,_opacityEffect),"Set tint opacity effect");
+            AddVisual(_visual,_tintVisual);AddVisual(_visual,_darkVisual,_tintVisual);
             float* matrix=stackalloc float[6]{(float)_outputWidth*factor/RenderWidth,0,0,(float)_outputHeight*factor/RenderHeight,0,0};
             Check(((delegate* unmanaged[Stdcall]<nint,float*,int>)Method(_visual,8))(_visual,matrix),"Visual.SetTransform");
             Check(((delegate* unmanaged[Stdcall]<nint, nint, int>)
-                Method(_visual, 15))(_visual, _swapChain), "IDCompositionVisual.SetContent");
+                Method(_darkVisual, 15))(_darkVisual, _swapChain), "Set dark mask content");
+            Check(((delegate* unmanaged[Stdcall]<nint,nint,int>)Method(_tintVisual,15))(_tintVisual,_tintSwapChain),"Set fixed tint content");
             Check(((delegate* unmanaged[Stdcall]<nint, nint, int>)
                 Method(_target, 3))(_target, _visual), "IDCompositionTarget.SetRoot");
             Check(((delegate* unmanaged[Stdcall]<nint, int>)
@@ -181,6 +200,9 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
             nint backBuffer = 0;
             Check(((delegate* unmanaged[Stdcall]<nint, uint, Guid*, nint*, int>)Method(_swapChain, 9))(_swapChain, 0, &bufferGuid, &backBuffer), "GetBuffer");
             _backBuffer = backBuffer;
+            nint tintBuffer=0;
+            Check(((delegate* unmanaged[Stdcall]<nint,uint,Guid*,nint*,int>)Method(_tintSwapChain,9))(_tintSwapChain,0,&bufferGuid,&tintBuffer),"Get tint buffer");
+            _tintBackBuffer=tintBuffer;
         }
         catch
         {
@@ -209,22 +231,55 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
     }
 
     public void Render(float x,float y) { if(!_disposed)RenderCached(x,y); }
+    private nint CreateVisual()
+    {
+        nint visual=0;Check(((delegate* unmanaged[Stdcall]<nint,nint*,int>)Method(_dcomp,7))(_dcomp,&visual),"Create child visual");return visual;
+    }
+    private static void AddVisual(nint parent,nint child,nint reference=0)
+        =>Check(((delegate* unmanaged[Stdcall]<nint,nint,int,nint,int>)Method(parent,16))(parent,child,1,reference),"Add child visual");
 
     private void RenderCached(float x,float y)
     {
         LightSettings s=LightSettings.Current;
-        if(!_cacheValid || _cachedSettings!=s || _cachedSize!=s.Size || _cachedBrightness!=s.Brightness || _cachedSoftness!=s.Softness || _cachedAmbient!=s.Ambient || _cachedTemperature!=s.Temperature)
+        bool rebuild=!_cacheValid || _cachedSettings!=s || _cachedSize!=s.Size || _cachedBrightness!=s.Brightness || _cachedSoftness!=s.Softness || _cachedAmbient!=s.Ambient;
+        if(rebuild)
         {
             _cachedPixels ??= new uint[checked(RenderWidth*RenderHeight)];
             float sx=Width*2f/RenderWidth,sy=Height*2f/RenderHeight,radius=LightMask.Radius(Width,Height,s);
-            LightMask.Tint color=new(s.Temperature);
             for(int row=0;row<RenderHeight;row++)
                 for(int col=0;col<RenderWidth;col++)
-                    _cachedPixels[row*RenderWidth+col]=LightMask.Pixel((col+.5f)*sx-Width,(row+.5f)*sy-Height,radius,s,color);
+                    _cachedPixels[row*RenderWidth+col]=LightMask.NeutralPixel((col+.5f)*sx-Width,(row+.5f)*sy-Height,radius,s);
             fixed(uint* pixels=_cachedPixels)
                 ((delegate* unmanaged[Stdcall]<nint,nint,uint,nint,void*,uint,uint,void>)Method(_context,48))(_context,_backBuffer,0,0,pixels,(uint)(RenderWidth*4),0);
+            if(CaptureSubmittedFrames)
+            {
+                Guid iid=TextureIid;nint current=0;
+                Check(((delegate* unmanaged[Stdcall]<nint,uint,Guid*,nint*,int>)Method(_swapChain,9))(_swapChain,0,&iid,&current),"Get current submitted buffer");
+                try{_submittedPixels=CompositionReadback.Read(_device,_context,current,RenderWidth,RenderHeight);}
+                finally{Release(ref current);}
+            }
             Check(((delegate* unmanaged[Stdcall]<nint,uint,uint,int>)Method(_swapChain,8))(_swapChain,0,0),"Present cached CPU mask");
-            _cachedSettings=s;_cachedSize=s.Size;_cachedBrightness=s.Brightness;_cachedSoftness=s.Softness;_cachedAmbient=s.Ambient;_cachedTemperature=s.Temperature;_cacheValid=true;
+            MaskUploadCount++;
+            _cachedSettings=s;_cachedSize=s.Size;_cachedBrightness=s.Brightness;_cachedSoftness=s.Softness;_cachedAmbient=s.Ambient;_cacheValid=true;
+        }
+        int sign=s.Temperature<0?-1:1;
+        if(rebuild||_cachedTintSign!=sign)
+        {
+            _tintPixels??=new uint[checked(RenderWidth*RenderHeight)];
+            for(int row=0;row<RenderHeight;row++)for(int col=0;col<RenderWidth;col++)
+            {
+                int index=row*RenderWidth+col;
+                _tintPixels[index]=LightMask.FullTintPixel(_cachedPixels![index],s.Ambient,sign<0);
+            }
+            fixed(uint* pixels=_tintPixels)
+                ((delegate* unmanaged[Stdcall]<nint,nint,uint,nint,void*,uint,uint,void>)Method(_context,48))(_context,_tintBackBuffer,0,0,pixels,(uint)(RenderWidth*4),0);
+            Check(((delegate* unmanaged[Stdcall]<nint,uint,uint,int>)Method(_tintSwapChain,8))(_tintSwapChain,0,0),"Present fixed tint field");
+            _cachedTintSign=sign;
+        }
+        if(_cachedTemperature!=s.Temperature)
+        {
+            Check(((delegate* unmanaged[Stdcall]<nint,float,int>)Method(_opacityEffect,4))(_opacityEffect,LightMask.TintAmount(s.Temperature)),"Tint.SetOpacity");
+            _cachedTemperature=s.Temperature;TintUpdateCount++;
         }
         // One composition transaction moves the entire retained bitmap: no seams.
         float dx=(Math.Clamp(x-Left,0,Width)/Width-1)*_outputWidth,dy=(Math.Clamp(y-Top,0,Height)/Height-1)*_outputHeight;
@@ -233,7 +288,8 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
         Check(((delegate* unmanaged[Stdcall]<nint,int>)Method(_dcomp,3))(_dcomp),"Commit CPU mask position");
     }
 
-    internal uint[] ReadDiagnostic(string? path) => CompositionReadback.Read(_device,_context,_backBuffer,RenderWidth,RenderHeight,path);
+    internal uint[] ReadDiagnostic() => _submittedPixels??throw new InvalidOperationException("Enable submitted-frame capture before rendering");
+    internal void WaitDiagnosticCommit() => Check(((delegate* unmanaged[Stdcall]<nint,int>)Method(_dcomp,4))(_dcomp),"Wait for diagnostic commit");
     internal void Raise() => Native.SetWindowPos(_window,Native.HWND_TOPMOST,0,0,0,0,0x13);
 
     public void Dispose()
@@ -241,11 +297,13 @@ internal sealed unsafe class CompositionOverlay : IDesktopOverlay
         if (_disposed) return;
         _disposed = true;
         if (_window != 0) Native.ShowWindow(_window, Native.SW_HIDE);
-        Release(ref _backBuffer);
+        Release(ref _backBuffer);Release(ref _tintBackBuffer);
         Release(ref _visual);
+        Release(ref _darkVisual);Release(ref _tintVisual);
+        Release(ref _opacityEffect);
         Release(ref _target);
         Release(ref _dcomp);
-        Release(ref _swapChain);
+        Release(ref _swapChain);Release(ref _tintSwapChain);
         Release(ref _dxgiDevice);
         Release(ref _factory);
         Release(ref _context);

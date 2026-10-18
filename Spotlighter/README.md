@@ -9,12 +9,12 @@
 | Program.cs / FrameClock.cs | Win32 消息循环、托盘、开关、鼠标跟随与调度 |
 | CompositionOverlay.cs | CPU 遮罩缓存、WARP 上传、DirectComposition 图层移动 |
 | DesktopSurface.cs / IDesktopOverlay.cs | 保留位图兼容回退与统一覆盖层接口 |
-| LightMask.cs / LightSettings.cs | 光照衰减、冷暖滤色、参数边界与设置保存 |
+| LightMask.cs / LightSettings.cs | 光照衰减、固定滤色、抗色带抖动、参数边界与设置保存 |
 | LampOverlay.cs / LampClickGesture.cs | 小台灯窗口、命中测试、单击与双击判定 |
 | LampPainter.cs / LampLayout.cs / LampIcon.cs | 灯具绘制、按屏幕高度缩放、桌面与托盘图标 |
 | SettingsWindow.cs / UiCanvas.cs | 半透明调光面板与 GDI+ 绘制 |
 | Native.cs / OverlayBitmap.cs | Win32 互操作、保留位图及窗口生命周期 |
-| SelfTest.cs / IntegrationTest.cs | 无窗口自检与可选集成验证 |
+| SelfTest.cs / IntegrationTest.cs / TintDisplayProbe.cs | 无窗口自检、可选集成验证及自有色块的桌面合成取样 |
 | FrameMetrics.cs / CompositionReadback.cs | 手动诊断和可选测量，正常渲染不执行同步读回 |
 | Assets/Spotlighter.ico | 程序的多尺寸台灯图标 |
 | Spotlighter.csproj / app.manifest | Native AOT、裁剪配置、DPI 感知与普通用户权限 |
