@@ -40,6 +40,7 @@ internal static unsafe class Program
         }
         if(args.Length==2&&args[0]=="--export-icon"){LampIcon.Write(args[1]);return;}
         if(args.Length==2&&args[0]=="--ui-preview"){SettingsWindow.WritePreview(args[1]);return;}
+        if(args.Length==2&&args[0]=="--guide-preview"){WelcomeOverlay.WritePreview(args[1]);return;}
         _openSettings = Array.IndexOf(args, "--settings") >= 0;
         _startActive = Array.IndexOf(args, "--active") >= 0;
         if (args.Length == 2 && args[0] == "--benchmark")
@@ -76,8 +77,9 @@ internal static unsafe class Program
             if (FrameMetrics.Output != null) { Toggle(); FrameMetrics.Start(); _profileStart = Environment.TickCount64; }
             if (_startActive && !_active) Toggle();
             if (_openSettings) OpenSettings();
+            if(FrameMetrics.Output==null&&(Array.IndexOf(args,"--guide")>=0||WelcomeState.NeedsGuide(WelcomeState.FilePath)))ShowWelcome();
             using FrameClock clock = new();
-            clock.Run(Tick, () => _active);
+            clock.Run(Tick, () => _active&&!WelcomeOverlay.Visible);
         }
         catch (Exception e)
         {
@@ -117,6 +119,7 @@ internal static unsafe class Program
         LampOverlay.OpenControls=(x,y)=>{if(!_active)Toggle();SettingsWindow.Toggle(x,y);};
         SettingsWindow.Changed = () => _drawX=float.NaN;
         SettingsWindow.Status = () => _surface is CompositionOverlay ? "缓存光照" : "兼容模式";
+        WelcomeOverlay.Closed=ResumeAfterWelcome;
 
     }
 
@@ -187,6 +190,7 @@ internal static unsafe class Program
     private static void Tick()
     {
         if (_exiting) return;
+        if(WelcomeOverlay.Visible)return;
         long now = Environment.TickCount64;
         if (FrameMetrics.Output != null && now - _profileStart > 15000 && _surface != null)
         { FrameMetrics.Save(_surface); Shutdown(); return; }
@@ -296,6 +300,7 @@ internal static unsafe class Program
 
     private static void RecreateDesktop()
     {
+        bool guideVisible=WelcomeOverlay.Visible;WelcomeOverlay.Close();
         SettingsWindow.Close();
         bool wasActive = _active;
         _useFallback=false;
@@ -305,6 +310,7 @@ internal static unsafe class Program
         _surface = null;
         if (wasActive) Toggle();
         else EnsureLamp();
+        if(guideVisible)ShowWelcome();
     }
 
     private static void ShowTrayMenu()
@@ -316,12 +322,14 @@ internal static unsafe class Program
         {
             Native.AppendMenuW(menu, Native.MF_STRING, 1, _active ? "关闭灯光" : "开启灯光");
             Native.AppendMenuW(menu, Native.MF_STRING, 4, "设置…");
+            Native.AppendMenuW(menu, Native.MF_STRING, 5, "操作说明…");
             Native.AppendMenuW(menu, Native.MF_STRING, 2, "退出");
             Native.GetCursorPos(out Native.POINT cursor);
             Native.SetForegroundWindow(_messageWindow);
             uint choice = Native.TrackPopupMenu(menu, Native.TPM_RIGHTBUTTON | Native.TPM_RETURNCMD,
                 cursor.X, cursor.Y, 0, _messageWindow, 0);
             if (choice == 4) OpenSettings();
+            else if(choice==5)ShowWelcome();
             else if (choice == 1) Toggle();
             else if (choice == 2) Shutdown();
         }
@@ -333,6 +341,23 @@ internal static unsafe class Program
         if (!_active) Toggle();
         if(_lamp!=null)SettingsWindow.Show(_lamp.PanelX,_lamp.PanelY);
         else SettingsWindow.Show();
+    }
+
+    private static void ShowWelcome()
+    {
+        SettingsWindow.Close();if(_active)_surface?.Deactivate();
+        try{WelcomeOverlay.Show();}
+        catch{ResumeAfterWelcome();throw;}
+    }
+    private static void ResumeAfterWelcome()
+    {
+        if(_exiting)return;
+        if(_active)
+        {
+            if(Native.GetCursorPos(out Native.POINT cursor)){_aimX=cursor.X;_aimY=cursor.Y;}
+            _surface?.Activate();_drawX=float.NaN;_lastRender=0;
+        }
+        _lamp?.Show();
     }
 
     private static void ReportCompositionFailure(Exception ex)
@@ -355,6 +380,7 @@ internal static unsafe class Program
     {
         if (_exiting) return;
         _exiting = true;
+        WelcomeOverlay.Close();
         SettingsWindow.Close();
         _active = false;
         _lamp?.Dispose();_lamp=null;

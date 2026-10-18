@@ -13,6 +13,7 @@
 | LampOverlay.cs / LampClickGesture.cs | 小台灯窗口、命中测试、单击与双击判定 |
 | LampPainter.cs / LampLayout.cs / LampIcon.cs | 灯具绘制、按屏幕高度缩放、桌面与托盘图标 |
 | SettingsWindow.cs / UiCanvas.cs | 半透明调光面板与 GDI+ 绘制 |
+| WelcomeOverlay.cs / WelcomeState.cs | 首次全屏操作说明、DPI 布局与独立的已读标记 |
 | Native.cs / OverlayBitmap.cs | Win32 互操作、保留位图及窗口生命周期 |
 | SelfTest.cs / IntegrationTest.cs / TintDisplayProbe.cs | 无窗口自检、可选集成验证及自有色块的桌面合成取样 |
 | FrameMetrics.cs / CompositionReadback.cs | 手动诊断和可选测量，正常渲染不执行同步读回 |

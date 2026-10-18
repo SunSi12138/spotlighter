@@ -163,6 +163,29 @@ internal static unsafe class SelfTest
             for(int i=0;i<256;i++)if(LightMask.Pixel(10000+i,10000,100,tintSettings)!=expected)return 63;
         }
 
+        foreach((int width,int height,uint dpi) in new[]{(1920,1080,96u),(3840,2160,144u),(3440,1440,144u),(1280,720,192u)})
+        {
+            WelcomeLayout guide=new(-1920,-120,width,height,dpi);
+            if(guide.Left< -1920||guide.Top< -120||guide.Left+guide.Width> -1920+width||guide.Top+guide.Height> -120+height)return 64;
+            if(guide.Width<1||guide.Height<1||!float.IsFinite(guide.Scale))return 65;
+        }
+        string guideFolder=Path.Combine(Path.GetTempPath(),"SpotlighterGuideTest-"+Guid.NewGuid().ToString("N"));
+        string guideState=Path.Combine(guideFolder,"welcome.version");
+        try
+        {
+            if(!WelcomeState.NeedsGuide(guideState)||!WelcomeState.MarkSeen(guideState)||WelcomeState.NeedsGuide(guideState))return 66;
+            LightSettings.Reset();if(WelcomeState.NeedsGuide(guideState))return 67;
+            File.WriteAllText(guideState,"0");if(!WelcomeState.NeedsGuide(guideState))return 68;
+            File.WriteAllText(guideState,"999");if(WelcomeState.NeedsGuide(guideState))return 69;
+            File.WriteAllText(guideState,"invalid");if(!WelcomeState.NeedsGuide(guideState))return 70;
+        }
+        finally
+        {
+            if(File.Exists(guideState))File.Delete(guideState);
+            if(File.Exists(guideState+".tmp"))File.Delete(guideState+".tmp");
+            if(Directory.Exists(guideFolder))Directory.Delete(guideFolder);
+        }
+
         nint icon=LampIcon.Create();LampIcon.DestroyIcon(icon);
         return painted>100?0:15;
     }

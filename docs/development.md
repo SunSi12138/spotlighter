@@ -19,6 +19,7 @@
 - 兼容路径仍用 8 位 Win32 位图直接滤色，也使用固定抗色带抖动，但没有独立的浮点透明度滤色层；极细微冷暖仍可能出现取整台阶。默认路径只使用原有 DirectComposition 接口，失败时自动回退。
 - 已取消曾经的四块外围窗口拼接，避免窗口几何更新不同步产生的接缝。外围颜色明确来自黑色像素，不再使用主题相关的 `SS_BLACKRECT`。[微软对静态控件颜色的说明](https://learn.microsoft.com/en-us/windows/win32/controls/static-control-styles)。
 - 设置面板只在操作时重绘小窗口，使用 Windows 自带 GDI+，没有引入浏览器、WinUI 或大型 UI 框架。
+- 首次操作说明用原生黑色半透明窗口覆盖虚拟桌面，小尺寸说明卡按主屏 DPI 居中并缩放以适应高度；没有整屏 CPU 位图、截图或动画。显示说明时暂停灯光，关闭后释放说明窗口并恢复原来的开关状态。已读标记单独保存到 `%LOCALAPPDATA%/Spotlighter/welcome.version`，恢复灯光默认值不清除它。首次升级到带说明的版本也会显示一次。
 - 环境亮度只在面板交互时映射：`ambient = 0.3 × position³`，绘制滑块用立方根逆映射。方向键和滚轮每步移动 1% 行程；数值显示四位小数。持久化仍保存实际亮度，默认 0.01 和 0～0.3 的范围不变，因此旧设置不会被二次映射。此曲线不增加渲染阶段的逐像素计算。
 
 在当前“保留桌面原内容，只调暗和滤色”的需求下，不需要 WGC 或 Desktop Duplication。此前的桌面采集与纸面着色已移除；采集会增加延迟、纹理资源及自捕获排除问题。也没有加入 DXR 或光追。
@@ -27,13 +28,13 @@
 
 Native AOT 原本就隐含 Trim；Release 现明确设置 `PublishTrimmed=true`、`TrimMode=full`、`OptimizationPreference=Size`，并保持不变区域性模式。发布版关闭运行时堆栈、调试器/事件/指标等支持，精简系统异常文案，不生成或拷贝调试符号。SDK 对 Native AOT 的这些功能已有静态裁剪支持，详见[微软体积优化说明](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/optimizing)。
 
-2026-10-19 冷暖与抗色带版本的本地文件大小（后续版本可能变化）：
+2026-10-19 含首次操作说明版本的本地文件大小（后续版本可能变化）：
 
 | 文件 | 大小 |
 | --- | --- |
 | 优化前 EXE | 1,864,704 字节（1.78 MiB） |
-| 优化后 EXE | 1,506,304 字节（1.44 MiB，减少约 19.2%） |
-| ZIP 便携包 | 754,937 字节（737 KiB） |
+| 当前 EXE | 1,528,320 字节（1.46 MiB，比优化前减少约 18.0%） |
+| ZIP 便携包 | 765,971 字节（748 KiB） |
 
 ZIP 只含 `Spotlighter.exe`，不含 PDB、SDK、源码或额外运行时。此前约 9.5 MiB 的 PDB 是调试符号，不是必需运行文件；旧本地符号备份在被 Git 忽略的 `artifacts/symbols/`。打包使用 ZIP 的 SmallestSize 压缩，并验证包内 EXE 的 SHA-256 与输入完全相同。CI 也生成此便携包；这里只比较文件体积，没有追加运行帧率测试。
 
@@ -75,6 +76,10 @@ Start-Process ./artifacts/publish/Spotlighter.exe -ArgumentList '--self-test' -W
 ./artifacts/publish/Spotlighter.exe --active
 # 不显示窗口，输出同一绘制代码生成的面板 PNG
 ./artifacts/publish/Spotlighter.exe --ui-preview ./artifacts/settings-preview.png
+# 手动显示完整操作说明（先退出已运行实例）
+./artifacts/publish/Spotlighter.exe --guide
+# 只输出说明卡 PNG，不显示遮罩、不写已读标记
+./artifacts/publish/Spotlighter.exe --guide-preview ./artifacts/welcome-preview.png
 # 重新生成源码中的多尺寸台灯图标
 ./artifacts/publish/Spotlighter.exe --export-icon ./Spotlighter/Assets/Spotlighter.ico
 # 仅手动需要时运行；会显示覆盖层，运行前退出托盘实例
@@ -85,6 +90,8 @@ Start-Process ./artifacts/publish/Spotlighter.exe -ArgumentList '--self-test' -W
 集成入口在 Present 前读取本程序提交的暗幕位图，检查 alpha、移动稳定性，以及连续调整冷暖时没有暗幕重建或上传。旧版在 Present 后读取已经轮转的下一帧缓冲区，可能把旧帧误判为当前帧，此处已修正。读回只在这个手动入口中启用，正常运行不会同步读回。
 
 集成验证还会短暂创建自己的 RGB(27,30,35) 色块窗口，在 DWM 提交完成后只采样该色块覆盖的一个屏幕点，比较冷暖扫值的实际合成结果与浮点参考。已知色块不可见或读像素失败时标为 UNVERIFIED；本程序不采集其他应用的画面。它仍不能证明物理显示无闪烁、HDR 校准准确或输入延迟。无交互的 PNG 预览已检查，但完整桌面上的灯具双击、面板拖动、跨应用点击、输入、滚动和拖动仍须手工复核。旧版输入曾经手工确认正常；这不替代当前版本的复核。
+
+操作说明的已读状态读写、版本处理、与恢复默认相互独立，以及 1080p/4K/带鱼屏/高 DPI 下的布局边界由自检覆盖；说明卡 PNG 已检查。按钮、Esc、首次显示、从托盘重开和显示器变化时重建的实际桌面交互仍需手工复核。
 
 ## 限制与待验证
 
