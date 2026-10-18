@@ -4,7 +4,7 @@
 
 Lightweight Windows desk-lamp overlay for night reading, with adjustable light and a click-through dimming layer.
 
-适用于 Windows 10/11 x64。原生 Win32、.NET 10 Native AOT，便携单文件，无需安装 .NET 运行时。
+适用于 Windows 10/11 x64。原生 Win32、.NET 10 Native AOT，便携单文件，无依赖。
 
 ## 使用
 
@@ -66,3 +66,7 @@ artifacts/               本地输出与报告（不提交）
 - [已有性能记录及测量边界](docs/performance.md)
 
 程序使用 CPU 生成并缓存光照遮罩，鼠标移动时只移动系统合成图层；不截取桌面，不逐帧重写全屏像素。显示合成仍由 Windows DWM 完成。多屏、HDR、混合 DPI 和物理交互的验证范围见开发文档。
+
+## License
+
+Spotlighter is distributed under the [MIT License](LICENSE).
