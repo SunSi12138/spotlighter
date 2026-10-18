@@ -1,6 +1,8 @@
 # Spotlighter
 
-Windows 桌面上的一盏小台灯。让柔和的光照跟随鼠标，调暗周围区域，方便夜间阅读。
+一款轻量、便携的 Windows 夜间阅读台灯覆盖层，光照跟随鼠标，周围桌面柔和变暗。
+
+Lightweight Windows desk-lamp overlay for night reading, with adjustable light and a click-through dimming layer.
 
 适用于 Windows 10/11 x64。原生 Win32、.NET 10 Native AOT，便携单文件，无需安装 .NET 运行时。
 
